@@ -133,6 +133,8 @@ MODULE_PARM_DESC(native_sct_param, "sys_call_table symaddr");
 static unsigned long compat_sct_param = 0x0;
 module_param(compat_sct_param, ulong, 0000);
 MODULE_PARM_DESC(compat_sct_param, "sys_call_table symaddr");
+
+static struct kobject *mod_kobj_parent_backup = nullptr;
 #endif
 
 static int __init fgetpriority_init(void) 
@@ -170,7 +172,8 @@ static int __init fgetpriority_init(void)
 	}
 	pr_info("init: %s: 0x%lx \n", buf, compat_sct);
 
-skip_compat:
+skip_compat:;
+	mod_kobj_parent_backup = THIS_MODULE->mkobj.kobj.parent;
 	kobject_del(&THIS_MODULE->mkobj.kobj);
 
 #else /* ! MODULE */
@@ -205,7 +208,8 @@ skip_compat:
 	return 0;
 }
 
-static int lkm_unload(void *)
+
+static __always_inline int lkm_unload(void)
 {
 	int ret = getpriority_hook_exit();
 	if (ret)
@@ -225,9 +229,14 @@ static void __exit fgetpriority_exit(void)
 #ifndef MODULE
 	__builtin_trap();
 	__builtin_unreachable();
+#else
+	int ret = kobject_add(&THIS_MODULE->mkobj.kobj, mod_kobj_parent_backup, "%s", THIS_MODULE->name);
+	pr_info("kobject_add ret: %d\n", ret);
+	if (ret)
+		panic("kobj add failed!\n");
+
+	lkm_unload();
 #endif
-//	stop_machine(lkm_unload_sm, NULL, NULL);
-	lkm_unload(nullptr);
 }
 
 module_init(fgetpriority_init);
