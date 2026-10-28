@@ -8,7 +8,8 @@ Usage:
 
 ./binary enable 10000	# filter uid 10000
 ./binary disable 10000	# do NOT filter uid 10000
-./binary reset		# reset bitmap
+./binary setall		# filter all UIDs (sets whole bitmap to 1)
+./binary reset		# reset bitmap to 0
 ```
 
 

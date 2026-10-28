@@ -8,6 +8,7 @@
 #define gp_flag_enable		0x1
 #define gp_flag_disable		0x2
 #define gp_flag_reset		0x3
+#define gp_flag_setall		0x4
 
 #define isdigit(x) ((x) >= '0' && (x) <= '9')
 static long dumb_atol(const char *str)
@@ -54,7 +55,10 @@ static int main(int argc, char **argv, char **envp)
 	if (!memcmp(argv[1], "reset", sizeof("reset")))
 		command = gp_flag_reset;
 
-	if (!argv[2] && command != gp_flag_reset)
+	if (!memcmp(argv[1], "setall", sizeof("setall")))
+		command = gp_flag_setall;
+
+	if (!argv[2] && command != gp_flag_reset && command != gp_flag_setall)
 		__builtin_trap();
 
 	if (argv[2]) {
