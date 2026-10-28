@@ -100,11 +100,7 @@ static __always_inline bool getpriority_should_swap(int which, int who, const bo
 	if (who < 10000)
 		return false;
 
-	if (who >= 20000)
-		return false;
-
-//	pr_info("ksu_getpriority: caller: %d paramms: %d / %d comm: %s \n", current_uid().val, which, who, current->comm);
-
+//	pr_info("getpriority: caller: %d paramms: %d / %d comm: %s \n", current_uid().val, which, who, current->comm);
 	if (!gp_test_package_bit(who))
 		return false;
 		
