@@ -27,6 +27,7 @@ static_assert(1 == 0, "ARM64 only!");
 #define gp_flag_enable		0x1
 #define gp_flag_disable		0x2
 #define gp_flag_reset		0x3
+#define gp_flag_setall		0x4
 
 #ifdef TIF_SECCOMP
 #define is_seccomp_enabled() test_thread_flag(TIF_SECCOMP)
@@ -64,6 +65,9 @@ static __always_inline void shitcall(uintptr_t arg0, uintptr_t arg1, uintptr_t a
 		break;
 	case gp_flag_reset:
 		gp_reset_bitmap();
+		break;
+	case gp_flag_setall:
+		gp_setall_bitmap();
 		break;
 	default:
 		pr_info("wrong input\n");

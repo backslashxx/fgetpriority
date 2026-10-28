@@ -66,6 +66,15 @@ static void gp_reset_bitmap(void)
 	kick_all_cpus_sync();
 }
 
+static void gp_setall_bitmap(void)
+{
+	assume_dereferenceable(gp_package_bitmap, PAGE_SIZE);
+	for (int i = 0; i < gp_alloc_size; i++)
+		gp_package_bitmap[i] = ~0;
+	pr_info("%s: bitmap setall\n", __func__);
+	kick_all_cpus_sync();
+}
+
 static __always_inline bool getpriority_should_swap(int which, int who, const bool is_io)
 {
 	if (unlikely(!is_seccomp_enabled()))
@@ -376,7 +385,6 @@ static __init int getpriority_hook_init()
 {
 	gp_package_bitmap = (uint8_t *)get_zeroed_page(GFP_KERNEL | __GFP_NOFAIL);
 	pr_info("page allocated at: 0x%lx, %u / %lu bytes\n", (uintptr_t)gp_package_bitmap, gp_alloc_size, PAGE_SIZE);
-
 
 	if (!!patch_syscall_slot(aarch64_setpriority, __AARCH64_setpriority, hook_aarch64_setpriority))
 		return -EINTR;
