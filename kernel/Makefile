@@ -31,7 +31,7 @@ CFLAGS_REMOVE_main.o += -Os
 CFLAGS_main.o += -O2
 endif
 
-CFLAGS_main.o += $(call cc-option, -Wframe-larger-than=256)
+CFLAGS_main.o += $(call cc-option, -Wframe-larger-than=1024)
 
 CFLAGS_REMOVE_main.o += -fno-builtin
 

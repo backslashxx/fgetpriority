@@ -40,6 +40,12 @@ static uintptr_t compat_sct = 0x0;
 static uintptr_t blank_slot = 0x0;
 static bool compat_hook_enabled = true;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION (3, 14, 0)
+#undef current_uid
+typedef struct { uid_t val; } gp_kuid_t;
+static inline gp_kuid_t current_uid() { return *(gp_kuid_t *)(&current_cred()->uid); }
+#endif // < 3.14
+
 #include "vmap_patch.h"
 #include "routine.c"
 
