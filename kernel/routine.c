@@ -13,7 +13,13 @@
 
 static const int AID_USER_OFFSET = 100000;
 
-static __always_inline bool getpriority_should_swap(int which, int who, const bool is_io)
+#ifdef TIF_SECCOMP
+#define is_seccomp_enabled() test_thread_flag(TIF_SECCOMP)
+#else
+#define is_seccomp_enabled() (!!current->seccomp.mode)
+#endif
+
+static __always_inline bool getpriority_should_swap(int who)
 {
 	if (unlikely(!is_seccomp_enabled()))
 		return false;
@@ -55,326 +61,146 @@ static __always_inline bool getpriority_should_swap(int which, int who, const bo
 	if (likely(cuid == who))
 		return false;
 
-	if (!is_io && which != PRIO_USER)
-		return false;
-
-	if (is_io && which != IOPRIO_WHO_USER)
-		return false;
-
-//	pr_info("ksu_getpriority: caller: %d paramms: %d / %d comm: %s \n", current_uid().val, which, who, current->comm);
-
-//	pr_info("getpriority: uid: %d is set! \n", who);
 	return true;
 }
 
-// dummy
-static uintptr_t dummy = 0x0;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpragmas"
+#pragma GCC diagnostic ignored "-Winfinite-recursion"
 
-// native
-#define __AARCH64_setpriority	140
-#define __AARCH64_getpriority	141
-#define __AARCH64_ioprio_set	30
-#define __AARCH64_ioprio_get	31
+#if defined(__GNUC__) && !defined(__clang__)
+#define KEEP_SYMBOL_NO_TAIL __attribute__((used)) noinline __attribute__((optimize("no-optimize-sibling-calls")))
+#else
+#define KEEP_SYMBOL_NO_TAIL __attribute__((used)) noinline __attribute__((disable_tail_calls))
+#endif
 
-static uintptr_t aarch64_setpriority __read_mostly = 0x0;
-static uintptr_t aarch64_getpriority __read_mostly = 0x0;
-static uintptr_t aarch64_ioprio_get __read_mostly = 0x0;
-static uintptr_t aarch64_ioprio_set __read_mostly = 0x0;
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
-asmlinkage __nocfi long hook_aarch64_setpriority(const struct pt_regs *regs)
+KEEP_SYMBOL_NO_TAIL struct user_struct *gphook_find_user(kuid_t uid)
 {
-	int which = regs->regs[0];
-	int *p_who = (int *)&regs->regs[1];
+	kuid_t n_uid = uid;
+	kuid_t dummy = { .val = 99999 };
 
-	if (!!getpriority_should_swap(which, *p_who, false))
-		*p_who = 99999;
+	if (getpriority_should_swap(*(int *)&uid))
+		n_uid = dummy;
 
-	if (is_module)
-		return ((typeof(hook_aarch64_setpriority) *)aarch64_setpriority)(regs);
-
-	extern typeof(hook_aarch64_setpriority) __arm64_sys_setpriority;
-	return __arm64_sys_setpriority(regs);
+	return gphook_find_user(n_uid);
 }
 
-asmlinkage __nocfi long hook_aarch64_getpriority(const struct pt_regs *regs)
-{
-	int which = regs->regs[0];
-	int *p_who = (int *)&regs->regs[1];
+#pragma GCC diagnostic pop
+#undef KEEP_SYMBOL_NO_TAIL
 
-	if (!!getpriority_should_swap(which, *p_who, false))
-		*p_who = 99999;
+#define estimate_sz	(256 * 4)
 
-	if (is_module)
-		return ((typeof(hook_aarch64_getpriority) *)aarch64_getpriority)(regs);
+#ifdef CONFIG_MODULES
+#define kernel_function_lookup(name) kallsyms_lookup_name(#name)
+#else
+#define kernel_function_lookup(name) ({ 						\
+	pr_info("kernel_function_lookup: %s addr: 0x%lx\n", #name, (uintptr_t)&name);	\
+	(uintptr_t)&name; 								\
+})
+#endif
 
-	extern typeof(hook_aarch64_getpriority) __arm64_sys_getpriority;
-	return __arm64_sys_getpriority(regs);
-}
-asmlinkage __nocfi long hook_aarch64_ioprio_get(const struct pt_regs *regs)
-{
-	int which = regs->regs[0];
-	int *p_who = (int *)&regs->regs[1];
-
-	if (!!getpriority_should_swap(which, *p_who, true))
-		*p_who = 99999;
-
-	if (is_module)
-		return ((typeof(hook_aarch64_ioprio_get) *)aarch64_ioprio_get)(regs);
-
-	extern typeof(hook_aarch64_ioprio_get) __arm64_sys_ioprio_get;
-	return __arm64_sys_ioprio_get(regs);
-}
-
-asmlinkage __nocfi long hook_aarch64_ioprio_set(const struct pt_regs *regs)
-{
-	int which = regs->regs[0];
-	int *p_who = (int *)&regs->regs[1];
-
-	if (!!getpriority_should_swap(which, *p_who, true))
-		*p_who = 99999;
-
-	if (is_module)
-		return ((typeof(hook_aarch64_ioprio_set) *)aarch64_ioprio_set)(regs);
-
-	extern typeof(hook_aarch64_ioprio_set) __arm64_sys_ioprio_set;
-	return __arm64_sys_ioprio_set(regs);
-}
-
-#else	/* < 4.19 */
-asmlinkage __nocfi long hook_aarch64_setpriority(int which, int who, int niceval)
-{
-	int new_who = who;
-	if (!!getpriority_should_swap(which, who, false))
-		new_who = 99999;
-
-	if (is_module)
-		return ((typeof(hook_aarch64_setpriority) *)aarch64_setpriority)(which, new_who, niceval);
-
-	return sys_setpriority(which, new_who, niceval);
-}
-
-asmlinkage __nocfi long hook_aarch64_getpriority(int which, int who)
-{
-	int new_who = who;
-	if (!!getpriority_should_swap(which, who, false))
-		new_who = 99999;
-
-	if (is_module)
-		return ((typeof(hook_aarch64_getpriority) *)aarch64_getpriority)(which, new_who);
-
-	return sys_getpriority(which, new_who);
-}
-
-asmlinkage __nocfi long hook_aarch64_ioprio_get(int which, int who)
-{
-	int new_who = who;
-	if (!!getpriority_should_swap(which, who, true))
-		new_who = 99999;
-
-	if (is_module)
-		return ((typeof(hook_aarch64_ioprio_get) *)aarch64_ioprio_get)(which, new_who);
-
-	return sys_ioprio_get(which, new_who);
-}
-
-asmlinkage __nocfi long hook_aarch64_ioprio_set(int which, int who, int ioprio)
-{
-	int new_who = who;
-	if (!!getpriority_should_swap(which, who, true))
-		new_who = 99999;
-
-	if (is_module)
-		return ((typeof(hook_aarch64_ioprio_set) *)aarch64_ioprio_set)(which, new_who, ioprio);
-
-	return sys_ioprio_set(which, new_who, ioprio);
-}
-#endif	/* < 4.19 */
-
-#define patch_syscall_slot(storage, sys_nr, hook) ({					\
-	uintptr_t *table = (uintptr_t *)native_sct;					\
-	storage = table[sys_nr];							\
-	int ret = write_to_readonly_slot((uintptr_t)&table[sys_nr], (uintptr_t)hook);	\
-	pr_info("%s: patching %s: ret: %d \n", __func__, #sys_nr, ret);			\
-	ret;										\
+#define self_patch_hook(hook_fn, tgt) ({					\
+	uintptr_t hook_p = kernel_function_lookup(hook_fn);			\
+	int ret = arm64_b_or_bl_patch(hook_p, get_ksym_size(hook_p, estimate_sz), hook_p, tgt);	\
+	pr_info("patch_hook: %s ret: %d \n", #hook_fn, ret);			\
+	ret;									\
 })
 
-// compat
-#define __ARMEABI_getpriority	96
-#define __ARMEABI_setpriority	97
-#define __ARMEABI_ioprio_set	314
-#define __ARMEABI_ioprio_get	315
-
-static uintptr_t armeabi_setpriority __read_mostly = 0x0;
-static uintptr_t armeabi_getpriority __read_mostly = 0x0;
-static uintptr_t armeabi_ioprio_get __read_mostly = 0x0;
-static uintptr_t armeabi_ioprio_set __read_mostly = 0x0;
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
-asmlinkage __nocfi long hook_armeabi_getpriority(const struct pt_regs *regs)
-{
-	int which = regs->regs[0];
-	int *p_who = (int *)&regs->regs[1];
-
-	if (!!getpriority_should_swap(which, *p_who, false))
-		*p_who = 99999;
-
-	if (is_module)
-		return ((typeof(hook_armeabi_getpriority) *)armeabi_getpriority)(regs);
-
-	extern typeof(hook_armeabi_getpriority) __arm64_sys_getpriority;
-	return __arm64_sys_getpriority(regs);
-}
-
-asmlinkage __nocfi long hook_armeabi_setpriority(const struct pt_regs *regs)
-{
-	int which = regs->regs[0];
-	int *p_who = (int *)&regs->regs[1];
-
-	if (!!getpriority_should_swap(which, *p_who, false))
-		*p_who = 99999;
-
-	if (is_module)
-		return ((typeof(hook_armeabi_setpriority) *)armeabi_setpriority)(regs);
-
-	extern typeof(hook_armeabi_setpriority) __arm64_sys_setpriority;
-	return __arm64_sys_setpriority(regs);
-}
-
-asmlinkage __nocfi long hook_armeabi_ioprio_get(const struct pt_regs *regs)
-{
-	int which = regs->regs[0];
-	int *p_who = (int *)&regs->regs[1];
-
-	if (!!getpriority_should_swap(which, *p_who, true))
-		*p_who = 99999;
-
-	if (is_module)
-		return ((typeof(hook_armeabi_ioprio_get) *)armeabi_ioprio_get)(regs);
-
-	extern typeof(hook_armeabi_getpriority) __arm64_sys_ioprio_get;
-	return __arm64_sys_ioprio_get(regs);
-}
-
-asmlinkage __nocfi long hook_armeabi_ioprio_set(const struct pt_regs *regs)
-{
-	int which = regs->regs[0];
-	int *p_who = (int *)&regs->regs[1];
-
-	if (!!getpriority_should_swap(which, *p_who, true))
-		*p_who = 99999;
-
-	if (is_module)
-		return ((typeof(hook_armeabi_ioprio_set) *)armeabi_ioprio_set)(regs);
-
-	extern typeof(hook_armeabi_getpriority) __arm64_sys_ioprio_set;
-	return __arm64_sys_ioprio_set(regs);
-}
-
-#else	/* < 4.19 */
-
-asmlinkage __nocfi long hook_armeabi_getpriority(int which, int who)
-{
-	int new_who = who;
-	if (!!getpriority_should_swap(which, who, false))
-		new_who = 99999;
-
-	if (is_module)
-		return ((typeof(hook_armeabi_getpriority) *)armeabi_getpriority)(which, new_who);
-
-	return sys_getpriority(which, new_who);
-}
-
-asmlinkage __nocfi long hook_armeabi_setpriority(int which, int who, int niceval)
-{
-	int new_who = who;
-	if (!!getpriority_should_swap(which, who, false))
-		new_who = 99999;
-
-	if (is_module)
-		return ((typeof(hook_armeabi_setpriority) *)armeabi_setpriority)(which, new_who, niceval);
-
-	return sys_setpriority(which, new_who, niceval);
-}
-
-asmlinkage __nocfi long hook_armeabi_ioprio_get(int which, int who)
-{
-	int new_who = who;
-	if (!!getpriority_should_swap(which, who, true))
-		new_who = 99999;
-
-	if (is_module)
-		return ((typeof(hook_armeabi_ioprio_get) *)armeabi_ioprio_get)(which, new_who);
-
-	return sys_ioprio_get(which, new_who);
-}
-
-asmlinkage __nocfi long hook_armeabi_ioprio_set(int which, int who, int ioprio)
-{
-	int new_who = who;
-	if (!!getpriority_should_swap(which, who, true))
-		new_who = 99999;
-
-	if (is_module)
-		return ((typeof(hook_armeabi_ioprio_set) *)armeabi_ioprio_set)(which, new_who, ioprio);
-
-	return sys_ioprio_set(which, new_who, ioprio);
-}
-#endif	/* < 4.19 */
-
-#define patch_syscall_slot_compat(storage, sys_nr, hook) ({				\
-	uintptr_t *table = (uintptr_t *)compat_sct;					\
-	storage = table[sys_nr];							\
-	int ret = write_to_readonly_slot((uintptr_t)&table[sys_nr], (uintptr_t)hook);	\
-	pr_info("%s: patching %s: ret: %d \n", __func__, #sys_nr, ret);			\
-	ret;										\
-})
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)
+#define syscall_lookup(name) kallsyms_lookup_name("__arm64_" name)
+#else
+#define syscall_lookup(name) kallsyms_lookup_name(name)
+#endif
 
 static __init int getpriority_hook_init(void)
 {
-	if (!!patch_syscall_slot(aarch64_setpriority, __AARCH64_setpriority, hook_aarch64_setpriority))
-		return -EINTR;
+	uintptr_t symbol_addr = kallsyms_lookup_name("find_user");
+	if (!symbol_addr)
+		return -ENOENT;
 
-	if (!!patch_syscall_slot(aarch64_getpriority, __AARCH64_getpriority, hook_aarch64_getpriority))
-		return -EINTR;
+	int ret = self_patch_hook(gphook_find_user, symbol_addr);
+	if (ret)
+		return ret;
 
-	if (!!patch_syscall_slot(aarch64_ioprio_set, __AARCH64_ioprio_set, hook_aarch64_ioprio_set))
-		return -EINTR;
+	// now patch callsites
+	uintptr_t callsite = syscall_lookup("sys_getpriority");
+	if (!callsite)
+		return -ENOENT;
 
-	if (!!patch_syscall_slot(aarch64_ioprio_get, __AARCH64_ioprio_get, hook_aarch64_ioprio_get))
-		return -EINTR;
+	ret = arm64_b_or_bl_patch(callsite, get_ksym_size(callsite, estimate_sz), symbol_addr, (uintptr_t)&gphook_find_user);
+	if (ret)
+		return ret;
 
-	if (!compat_hook_enabled)
-		return 0;
+	callsite = syscall_lookup("sys_setpriority");
+	if (!callsite)
+		return -ENOENT;
 
-	if (!!patch_syscall_slot_compat(armeabi_setpriority, __ARMEABI_setpriority, hook_armeabi_setpriority))
-		return -EINTR;
+	ret = arm64_b_or_bl_patch(callsite, get_ksym_size(callsite, estimate_sz), symbol_addr, (uintptr_t)&gphook_find_user);
+	if (ret)
+		return ret;
 
-	if (!!patch_syscall_slot_compat(armeabi_getpriority, __ARMEABI_getpriority, hook_armeabi_getpriority))
-		return -EINTR;
+	callsite = syscall_lookup("sys_ioprio_set");
+	if (!callsite)
+		return -ENOENT;
 
-	if (!!patch_syscall_slot_compat(armeabi_ioprio_set, __ARMEABI_ioprio_set, hook_armeabi_ioprio_set))
-		return -EINTR;
+	ret = arm64_b_or_bl_patch(callsite, get_ksym_size(callsite, estimate_sz), symbol_addr, (uintptr_t)&gphook_find_user);
+	if (ret)
+		return ret;
 
-	if (!!patch_syscall_slot_compat(armeabi_ioprio_get, __ARMEABI_ioprio_get, hook_armeabi_ioprio_get))
-		return -EINTR;
+	callsite = syscall_lookup("sys_ioprio_get");
+	if (!callsite)
+		return -ENOENT;
 
-	return 0;
+	ret = arm64_b_or_bl_patch(callsite, get_ksym_size(callsite, estimate_sz), symbol_addr, (uintptr_t)&gphook_find_user);
+	if (ret)
+		return ret;
+
+	pr_info("%s: ok! \n", __func__);
+	return ret;
 }
 
 static int getpriority_hook_exit(void)
 {
-	patch_syscall_slot(dummy, __AARCH64_ioprio_get, aarch64_ioprio_get);
-	patch_syscall_slot(dummy, __AARCH64_ioprio_set, aarch64_ioprio_set);
-	patch_syscall_slot(dummy, __AARCH64_getpriority, aarch64_getpriority);
-	patch_syscall_slot(dummy, __AARCH64_setpriority, aarch64_setpriority);
+	uintptr_t symbol_addr = kallsyms_lookup_name("find_user");
+	if (!symbol_addr)
+		return -ENOENT;
 
-	if (compat_hook_enabled) {
-		patch_syscall_slot_compat(dummy, __ARMEABI_ioprio_get, armeabi_ioprio_get);
-		patch_syscall_slot_compat(dummy, __ARMEABI_ioprio_set, armeabi_ioprio_set);
-		patch_syscall_slot_compat(dummy, __ARMEABI_getpriority, armeabi_getpriority);
-		patch_syscall_slot_compat(dummy, __ARMEABI_setpriority, armeabi_setpriority);
-	}
+	uintptr_t hook_addr = (uintptr_t)&gphook_find_user;
+	if (!hook_addr)
+		return -ENOENT;
+
+	// restore callsites
+	uintptr_t callsite = syscall_lookup("sys_getpriority");
+	if (!callsite)
+		return -ENOENT;
+
+	int ret = arm64_b_or_bl_patch(callsite, get_ksym_size(callsite, estimate_sz), hook_addr, symbol_addr);
+	if (ret)
+		return ret;
+
+	callsite = syscall_lookup("sys_setpriority");
+	if (!callsite)
+		return -ENOENT;
+
+	ret = arm64_b_or_bl_patch(callsite, get_ksym_size(callsite, estimate_sz), hook_addr, symbol_addr);
+	if (ret)
+		return ret;
+
+	callsite = syscall_lookup("sys_ioprio_set");
+	if (!callsite)
+		return -ENOENT;
+
+	ret = arm64_b_or_bl_patch(callsite, get_ksym_size(callsite, estimate_sz), hook_addr, symbol_addr);
+	if (ret)
+		return ret;
+
+	callsite = syscall_lookup("sys_ioprio_get");
+	if (!callsite)
+		return -ENOENT;
+
+	ret = arm64_b_or_bl_patch(callsite, get_ksym_size(callsite, estimate_sz), hook_addr, symbol_addr);
+	if (ret)
+		return ret;
 
 	return 0;
 }
