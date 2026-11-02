@@ -103,6 +103,7 @@ __weak long copy_from_kernel_nofault(void *dst, const void *src, size_t size)
 }
 #endif
 
+#include "routine.h"
 #include "arm64_branch_insn.h"
 #include "routine_raw.c"
 
@@ -132,6 +133,11 @@ static int __init fgetpriority_init(void)
 	int ret = getpriority_hook_init();
 	pr_info("init: ret: %d\n", ret);
 
+#ifdef CONFIG_KPROBES
+	if (!ret)
+		return getpriority_kp_init();
+#endif
+
 	return 0;
 }
 
@@ -149,6 +155,10 @@ static void __exit fgetpriority_exit(void)
 	pr_info("kobject_add ret: %d\n", ret);
 	if (ret)
 		panic("kobj add failed!\n");
+
+#ifdef CONFIG_KPROBES
+	getpriority_kp_exit();
+#endif
 #endif
 }
 
