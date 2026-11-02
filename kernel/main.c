@@ -104,7 +104,12 @@ __weak long copy_from_kernel_nofault(void *dst, const void *src, size_t size)
 #endif
 
 #include "arm64_branch_insn.h"
-#include "routine.c"
+#include "routine_raw.c"
+
+#ifdef CONFIG_KPROBES
+#include "arch.h"
+#include "routine_kp.c"
+#endif
 
 static int __init fgetpriority_init(void)
 {
